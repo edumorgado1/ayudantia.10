@@ -1,0 +1,164 @@
+---
+title: "Ayudantía 10"
+output: github_document
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library (ggplot2)
+library(datasets)
+library(pROC)
+library(discrim)
+library(plyr)
+library(caret)
+library(tidymodels)
+library(tidyverse)
+library(e1071)
+library(rstan)
+library(rstanarm)
+library(rpart)
+library(rpart.plot)
+```
+
+### Cargamos la data:
+```{r}
+data = read.csv(file.choose())
+summary(data)
+
+```
+Limpiamos la data y arreglamos variables.
+
+```{r}
+sapply(data, function(x)sum(is.na(x)))
+data_limpia=na.omit(data)
+data_limpia=mutate(data_limpia, default.payment.next.month=as.factor(default.payment.next.month), SEX=as.factor(SEX), MARRIAGE=as.factor(MARRIAGE), EDUCATION=as.factor(EDUCATION))
+str(data_limpia)
+```
+## Visualización de datos:
+
+```{r}
+ggplot(data = data_limpia,aes(factor(default.payment.next.month)))+
+  geom_bar( col='black', fill="#993333", alpha = 0.5) +
+  facet_wrap(~EDUCATION) +
+  scale_x_discrete("Pagan el próximo mes",labels = c("NO","YES")) +
+  scale_y_continuous("Count",limits = c(0,5000),breaks=seq(0,47222,by=5000))  +
+  theme(axis.text.x = element_text(face="bold", size=10))
+```
+Analisamos el nivel de pago de los clientes a raíz de su educación, donde (1=graduate school, 2=university, 3=high school, 4=others, 5=unknown, 6=unknown)
+
+
+
+```{r}
+ggplot(data_limpia,aes(x=factor(AGE))) +
+  geom_bar(col ="black",fill="#993333",alpha=0.5) +
+  theme(axis.text.x = element_text(face="bold", size=10)) +
+  scale_x_discrete("Hotel") +
+  scale_y_continuous("Count")
+```
+Podemos observar que la mayoría de las personas de las cuales se tiene información son adultos jóvenes.
+
+### Creamo train y test data:
+```{r}
+data_split <- initial_split(data_limpia, prop = 0.8)
+
+train_data <- training(data_split) 
+test_data <- testing(data_split)
+
+str(train_data)
+```
+### Creamos receta:
+
+```{r}
+receta <- 
+  recipe(default.payment.next.month ~ AGE+MARRIAGE+SEX+ PAY_0+PAY_AMT1, data = train_data)
+
+receta 
+modelo_trees <-
+  decision_tree(tree_depth = 5, min_n = 10) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+modelo_trees
+```
+## Regresión Logística:
+
+```{r}
+modelo_rl <- 
+  logistic_reg() %>% 
+  set_engine("glm")
+
+
+
+```
+```{r}
+fit_mod <- function(mod){
+  
+  modelo_fit <- 
+  workflow() %>% 
+  add_model(mod) %>% 
+  add_recipe(receta) %>% 
+  fit(data = train_data)
+
+model_pred <- 
+  predict(modelo_fit, test_data, type = "prob") %>% 
+  bind_cols(test_data) 
+
+return(model_pred %>% 
+  roc_auc(truth= default.payment.next.month, .pred_0))
+}
+
+fit_mod(modelo_rl)
+```
+
+
+
+El modelo regresión logística da un valor del AUC de 70%
+
+## Visualización curva ROC:
+
+```{r}
+censo <- rpart(default.payment.next.month~AGE+MARRIAGE+EDUCATION+SEX+ PAY_0+PAY_AMT1, data = train_data, method = "class")
+pred_incom_roc <- predict(censo, newdata = test_data, type = "prob")
+pred_incom_roc %>% as.data.frame() %>% head()
+pred_incom_roc <- pred_incom_roc %>% as.data.frame()
+prob <- pred_incom_roc$"1"
+ROC <- roc(test_data$default.payment.next.month,prob)
+
+plot(ROC, col = "#fd634b", family = "sans", cex = 2, main = "CART Model ROC Curve")
+```
+
+## Modelo Naive Bayes:
+
+```{r}
+modelo_nb <-
+  naive_Bayes(smoothness = .8) %>%
+  set_engine("naivebayes")
+
+
+```
+```{r}
+fit_mod <- function(mod){
+  
+  modelo_fit <- 
+  workflow() %>% 
+  add_model(mod) %>% 
+  add_recipe(receta) %>% 
+  fit(data = train_data)
+
+model_pred <- 
+  predict(modelo_fit, test_data, type = "prob") %>% 
+  bind_cols(test_data) 
+
+return(model_pred %>% 
+  roc_auc(truth= default.payment.next.month, .pred_0))
+}
+
+fit_mod(modelo_nb)
+```
+
+El modelo Naive Bayes nos da un valor AUC del 73%. Se puede concluir que este modelo da una mejor predicción de la variable a estimar.
+
+
+
+
